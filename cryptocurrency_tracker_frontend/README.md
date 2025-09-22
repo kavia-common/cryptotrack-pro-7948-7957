@@ -1,82 +1,62 @@
-# Lightweight React Template for KAVIA
+# Cryptocurrency Tracker Frontend (Neon Fun)
 
-This project provides a minimal React template with a clean, modern UI and minimal dependencies.
+A playful React dashboard that tracks live crypto prices, manages a local portfolio, sets simple price alerts, and performs basic market analysis using CoinGecko.
 
 ## Features
 
-- **Lightweight**: No heavy UI frameworks - uses only vanilla CSS and React
-- **Modern UI**: Clean, responsive design with KAVIA brand styling
-- **Fast**: Minimal dependencies for quick loading times
-- **Simple**: Easy to understand and modify
+- Live Prices with auto-refresh (15s), sparklines, KPIs
+- Portfolio Manager (localStorage CRUD, live valuation)
+- Price Alerts (client-side checks while page is open)
+- Market Analysis (interactive chart with Recharts)
+- Vibrant Neon Fun theme with gradients, rounded corners, and dynamic visuals
+- Modular structure: components, hooks, utils
 
-## Getting Started
+## Quick Start
 
-In the project directory, you can run:
+1. Install dependencies
+   - npm install
+2. Start development server
+   - npm start
+3. Open http://localhost:3000
 
-### `npm start`
+## Project Structure
 
-Runs the app in development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- src/components/layout: Header, Sidebar
+- src/components/ui: small reusable UI pieces
+- src/context/ThemeContext.js: light/dark toggle and persistence
+- src/hooks/useLivePrices.js: CoinGecko polling
+- src/utils/api.js: API helpers for CoinGecko
+- src/utils/storage.js: localStorage helpers
+- src/pages/: LivePrices, Portfolio, Alerts, Analysis
 
-### `npm test`
+## CoinGecko API
 
-Launches the test runner in interactive watch mode.
+This app uses the public CoinGecko API (no credentials needed). If your environment or proxy requires a base URL or API key:
 
-### `npm run build`
+Environment variables (optional):
+- REACT_APP_COINGECKO_BASE_URL=https://api.coingecko.com/api/v3
+- REACT_APP_COINGECKO_API_KEY=your_key_if_you_have_one
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Create a .env file in the project root (same folder as package.json) and add the variables. Do not commit real secrets.
 
-## Customization
+Code reference:
+- src/utils/api.js reads the environment variables and adds header `x-cg-pro-api-key` if provided.
 
-### Colors
+## Theming
 
-The main brand colors are defined as CSS variables in `src/App.css`:
+The Neon Fun theme lives in src/App.css using CSS variables and gradients. Theme toggle is in the header (stored in localStorage).
 
-```css
-:root {
-  --kavia-orange: #E87A41;
-  --kavia-dark: #1A1A1A;
-  --text-color: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --border-color: rgba(255, 255, 255, 0.1);
-}
-```
+## Notes and Limitations
 
-### Components
+- Alerts are evaluated client-side only when the Alerts page is open; for production use, integrate server-side schedulers/webhooks/push notifications.
+- Portfolio data is stored locally (localStorage). Integrate a backend/database for multi-device persistence.
 
-This template uses pure HTML/CSS components instead of a UI framework. You can find component styles in `src/App.css`. 
+## Scripts
 
-Common components include:
-- Buttons (`.btn`, `.btn-large`)
-- Container (`.container`)
-- Navigation (`.navbar`)
-- Typography (`.title`, `.subtitle`, `.description`)
+- npm start: Start dev server
+- npm run build: Production build
+- npm test: Run tests
 
-## Learn More
+## License
 
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+MIT
