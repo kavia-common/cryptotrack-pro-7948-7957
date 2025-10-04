@@ -48,7 +48,7 @@
      headers: buildHeaders(),
    });
    if (!res.ok) {
-     throw new Error(`Failed market fetch: ${res.status}`);
+     throw new Error(`Failed market fetch: ${res.status} ${res.statusText || ''}`.trim());
    }
    return res.json();
  }
@@ -64,6 +64,85 @@
      `${BASE_URL}/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vs_currency)}&days=${encodeURIComponent(days)}`,
      { headers: buildHeaders() }
    );
-   if (!res.ok) throw new Error(`Failed coin history: ${res.status}`);
+   if (!res.ok) throw new Error(`Failed coin history: ${res.status} ${res.statusText || ''}`.trim());
    return res.json();
+ }
+
+ // PUBLIC_INTERFACE
+ export async function fetchTrending() {
+   /**
+    * Fetch trending coins from CoinGecko (/search/trending)
+    * Returns a standardized array of coin entries:
+    * [{ id, symbol, name, market_cap_rank, image: { small, thumb } }]
+    */
+   const url = `${BASE_URL}/search/trending`;
+   const res = await fetch(url, { headers: buildHeaders() });
+   if (!res.ok) {
+     throw new Error(`Failed trending fetch: ${res.status} ${res.statusText || ''}`.trim());
+   }
+   const json = await res.json();
+   const coins = Array.isArray(json?.coins) ? json.coins : [];
+   // Normalize shape defensively
+   return coins
+     .map((c) => c?.item || c)
+     .filter(Boolean)
+     .map((item) => ({
+       id: item.id,
+       symbol: item.symbol,
+       name: item.name,
+       market_cap_rank: item.market_cap_rank,
+       image: {
+         small: item.small || item.thumb || '',
+         thumb: item.thumb || item.small || '',
+       },
+     }));
+ }
+
+ // PUBLIC_INTERFACE
+ export async function fetchCoinDetail(coinId) {
+   /**
+    * Fetch detailed coin info with market_data but without heavy sections.
+    * GET /coins/{id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false
+    * Returns essential fields:
+    * {
+    *   id, symbol, name,
+    *   image: { small },
+    *   market_data: {
+    *     current_price, market_cap, price_change_percentage_24h
+    *   }
+    * }
+    */
+   if (!coinId) throw new Error('coinId is required');
+   const params = new URLSearchParams({
+     localization: 'false',
+     tickers: 'false',
+     market_data: 'true',
+     community_data: 'false',
+     developer_data: 'false',
+     sparkline: 'false',
+   });
+   const url = `${BASE_URL}/coins/${encodeURIComponent(coinId)}?${params.toString()}`;
+   const res = await fetch(url, { headers: buildHeaders() });
+   if (!res.ok) {
+     throw new Error(`Failed coin detail: ${res.status} ${res.statusText || ''}`.trim());
+   }
+   const json = await res.json();
+
+   // Defensive extraction of essential fields
+   const md = json?.market_data || {};
+   const image = json?.image || {};
+   return {
+     id: json?.id,
+     symbol: json?.symbol,
+     name: json?.name,
+     image: { small: image.small || '' },
+     market_data: {
+       current_price: md.current_price || {},
+       market_cap: md.market_cap || {},
+       price_change_percentage_24h:
+         typeof md.price_change_percentage_24h === 'number'
+           ? md.price_change_percentage_24h
+           : (md.price_change_percentage_24h_in_currency?.usd ?? null),
+     },
+   };
  }
