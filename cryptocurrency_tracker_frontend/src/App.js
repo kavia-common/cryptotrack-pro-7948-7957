@@ -9,30 +9,33 @@ import Portfolio from './pages/Portfolio';
 import Alerts from './pages/Alerts';
 import Analysis from './pages/Analysis';
 import { ThemeProvider } from './context/ThemeContext';
+import { AppStateProvider } from './context/AppStateContext';
 
 // PUBLIC_INTERFACE
 function App() {
   /** Root app renders the playful Neon Fun dashboard layout with routes. */
   return (
     <ThemeProvider>
-      <Router>
-        <div className="app-shell">
-          <Header />
-          <div className="app-body">
-            <Sidebar />
-            <main className="app-main neon-surface-card">
-              <Routes>
-                <Route path="/" element={<Navigate to="/live" replace />} />
-                <Route path="/live" element={<LivePrices />} />
-                <Route path="/portfolio" element={<Portfolio />} />
-                <Route path="/alerts" element={<Alerts />} />
-                <Route path="/analysis" element={<Analysis />} />
-                <Route path="*" element={<Navigate to="/live" replace />} />
-              </Routes>
-            </main>
+      <AppStateProvider>
+        <Router>
+          <div className="app-shell">
+            <Header />
+            <div className="app-body">
+              <Sidebar />
+              <main className="app-main neon-surface-card">
+                <Routes>
+                  <Route path="/" element={<Navigate to="/live" replace />} />
+                  <Route path="/live" element={<LivePrices />} />
+                  <Route path="/portfolio" element={<Portfolio />} />
+                  <Route path="/alerts" element={<Alerts />} />
+                  <Route path="/analysis" element={<Analysis />} />
+                  <Route path="*" element={<Navigate to="/live" replace />} />
+                </Routes>
+              </main>
+            </div>
           </div>
-        </div>
-      </Router>
+        </Router>
+      </AppStateProvider>
     </ThemeProvider>
   );
 }
