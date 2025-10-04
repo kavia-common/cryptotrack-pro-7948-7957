@@ -18,6 +18,9 @@ code {
 }
 .badge.up { background: rgba(16,185,129,0.15); color: #22c55e; }
 .badge.down { background: rgba(239,68,68,0.15); color: #ef4444; }
+/* Additional neon badge accents */
+.badge.warn { background: rgba(245,158,11,0.15); color: #F59E0B; border-color: rgba(245,158,11,0.35); }
+.badge.info { background: rgba(59,130,246,0.15); color: #3B82F6; border-color: rgba(59,130,246,0.35); }
 
 /* Helpers */
 .muted { color: var(--muted); font-size: 14px; }
@@ -27,12 +30,23 @@ code {
 .section-title { font-size: 20px; font-weight: 800; margin: 0 0 8px; }
 .section-subtitle { color: var(--muted); margin: 0 0 16px; }
 
-/* Additional helpers for spacing/layout reuse */
+/* Gradient text helper (playful) */
+.text-gradient {
+  background: var(--grad-1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Button sizing helpers (non-breaking) */
+.btn-sm { padding: 6px 10px; border-radius: 10px; font-size: 12px; }
+.btn-lg { padding: 12px 16px; border-radius: 14px; font-size: 15px; }
+
+/* Spacing/layout reuse */
 .spacer-sm { height: 8px; }
 .spacer-md { height: 16px; }
 .spacer-lg { height: 24px; }
 
-/* Additional helpers for spacing/layout reuse */
-.spacer-sm { height: 8px; }
-.spacer-md { height: 16px; }
-.spacer-lg { height: 24px; }
+/* Shadows (re-usable) */
+.shadow-soft { box-shadow: var(--shadow-soft); }
+.shadow-glow { box-shadow: var(--glow); }
