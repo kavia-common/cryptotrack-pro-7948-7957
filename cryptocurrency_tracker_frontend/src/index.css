@@ -26,3 +26,13 @@ code {
 .card-subtitle { color: var(--muted); font-size: 13px; }
 .section-title { font-size: 20px; font-weight: 800; margin: 0 0 8px; }
 .section-subtitle { color: var(--muted); margin: 0 0 16px; }
+
+/* Additional helpers for spacing/layout reuse */
+.spacer-sm { height: 8px; }
+.spacer-md { height: 16px; }
+.spacer-lg { height: 24px; }
+
+/* Additional helpers for spacing/layout reuse */
+.spacer-sm { height: 8px; }
+.spacer-md { height: 16px; }
+.spacer-lg { height: 24px; }
