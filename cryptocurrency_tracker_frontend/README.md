@@ -58,6 +58,20 @@ How to set:
 - Fill in the Jira variables. Never commit real secrets.
 - Restart the dev server after changing .env.
 
+Development proxy for Jira (avoids CORS):
+- We ship src/setupProxy.js (Create React App) to proxy /jira/* to https://{REACT_APP_JIRA_SITE_DOMAIN}/* and inject Basic Auth on the server-side.
+- The frontend calls /jira/rest/... during development, so browser CORS is avoided and secrets are not present in JS requests.
+- Ensure .env has all Jira vars set. Then run `npm start`. If you change .env, restart the dev server.
+
+Diagnostics & troubleshooting:
+- Open Integrations > Jira > Jira Burndown. Toggle "Show Diagnostics".
+- The panel shows which env vars are present (boolean), whether proxy mode is active, and a health check via /rest/api/3/myself.
+- Common issues:
+  - CORS or "Failed to fetch": Ensure proxy is enabled (development only) and .env is filled. Restart `npm start`.
+  - 401/403: Verify REACT_APP_JIRA_EMAIL and REACT_APP_JIRA_API_TOKEN are correct and belong to an account with API access.
+  - Board list empty: Confirm project key exists and has a Scrum board. We query /rest/agile/1.0/board?projectKeyOrId={key}.
+  - No active sprint: Start a sprint on the board or select a different sprint when available.
+
 Security note:
 - This app is frontend-only; using Jira credentials from the browser is not secure for production.
 - We strongly recommend adding a backend proxy to store secrets server-side and forward Jira requests.
@@ -65,9 +79,9 @@ Security note:
 
 Code references:
 - src/utils/api.js reads CoinGecko env vars.
-- src/client/jiraClient.js reads Jira env vars. It uses Basic Auth and provides a mock fallback when env vars are missing.
+- src/client/jiraClient.js reads Jira env vars and prefers the /jira proxy during development; it also provides a mock fallback when env vars are missing.
 - src/utils/burndown.js computes daily remaining vs ideal lines for the sprint duration.
-- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table.
+- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table and includes a diagnostics panel.
 
 ## Project Structure
 

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Loading, ErrorState, Table, ToggleButton } from '../components/ui';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from 'recharts';
-import { JiraEnv, getBoards, getActiveSprints, searchIssuesJQL, extractIssueInfo } from '../client/jiraClient';
+import { JiraEnv, getBoards, getActiveSprints, searchIssuesJQL, extractIssueInfo, getMyself } from '../client/jiraClient';
 import useCachedFetch from '../hooks/useCachedFetch';
 import { computeBurndown } from '../utils/burndown';
 
@@ -26,6 +26,13 @@ export default function JiraBurndown() {
   const [issues, setIssues] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Diagnostics panel
+  const [showDiag, setShowDiag] = useState(false);
+  const [health, setHealth] = useState({ status: 'idle', detail: '' });
+
+  // Local proxy detection (not a hook): dev mode + site configured implies proxy available
+  const proxyActive = (process.env.NODE_ENV !== 'production') && Boolean(env.site);
 
   // Boards list
   const boardsKey = `jira:boards:${projectKey}`;
@@ -130,9 +137,73 @@ export default function JiraBurndown() {
               onLabel="Demo Data: On"
               offLabel="Demo Data: Off"
             />
+            <button className="btn" style={{ marginLeft: 8 }} onClick={() => setShowDiag((v) => !v)}>
+              {showDiag ? 'Hide Diagnostics' : 'Show Diagnostics'}
+            </button>
           </div>
         </div>
       </div>
+
+      {showDiag && (
+        <Card title="Jira Diagnostics" subtitle="Environment check and connectivity health" className="card-accent-red">
+          <div className="grid grid-3">
+            <div className="col">
+              <div className="small">Env Present</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <span className="neon-badge neon-badge--success">SITE: {env.site ? 'Yes' : 'No'}</span>
+                <span className="neon-badge neon-badge--success">PROJECT: {env.projectKey ? 'Yes' : 'No'}</span>
+                <span className="neon-badge neon-badge--success">EMAIL: {env.email ? 'Yes' : 'No'}</span>
+                <span className="neon-badge neon-badge--success">TOKEN: {env.token ? 'Yes' : 'No'}</span>
+              </div>
+            </div>
+            <div className="col">
+              <div className="small">Proxy Mode</div>
+              <div>
+                {proxyActive
+                  ? 'Using /jira dev proxy (recommended in development).'
+                  : 'Direct Jira API calls (may be blocked by CORS).'}
+              </div>
+            </div>
+            <div className="col">
+              <div className="small">Health Check</div>
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <button
+                  className="btn btn-sm"
+                  onClick={async () => {
+                    try {
+                      setHealth({ status: 'loading', detail: '' });
+                      const res = await getMyself();
+                      const who = res?.displayName || res?.emailAddress || res?.accountId || 'OK';
+                      setHealth({ status: 'ok', detail: String(who) });
+                    } catch (e) {
+                      setHealth({ status: 'error', detail: e?.message || 'Health check failed' });
+                    }
+                  }}
+                >
+                  Run /myself
+                </button>
+                {health.status === 'loading' && <span className="small">Checking...</span>}
+                {health.status === 'ok' && <span className="small" style={{ color: '#10B981' }}>OK: {health.detail}</span>}
+                {health.status === 'error' && <span className="small" style={{ color: 'var(--error)' }}>{health.detail}</span>}
+              </div>
+            </div>
+          </div>
+          {!isConfigured && (
+            <div className="small" style={{ marginTop: 8, color: '#F59E0B' }}>
+              Tip: Fill REACT_APP_JIRA_* in .env and restart npm start. Demo mode shows mock data if not configured.
+            </div>
+          )}
+          {proxyActive ? (
+            <div className="small" style={{ marginTop: 8 }}>
+              Note: The dev proxy injects Basic Auth on the server side and bypasses browser CORS.
+            </div>
+          ) : (
+            <div className="small" style={{ marginTop: 8, color: '#F59E0B' }}>
+              Warning: Direct Jira API calls from browser often fail due to CORS. Use the dev proxy (src/setupProxy.js).
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card title="Controls" subtitle="Select project, board, and sprint" className="card-accent-amber">
         <div className="grid grid-3">
@@ -166,7 +237,9 @@ export default function JiraBurndown() {
               <button className="btn btn-sm" onClick={refetchBoards} disabled={!projectKey && !env.projectKey || boardsLoading}>
                 Reload Boards
               </button>
-              {(boardsError) && <span className="small" style={{ color: 'var(--error)' }}>{boardsError}</span>}
+              {(boardsError) && <span className="small" style={{ color: 'var(--error)' }}>
+                {boardsError}
+              </span>}
             </div>
           </div>
 

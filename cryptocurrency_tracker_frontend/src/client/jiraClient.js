@@ -11,7 +11,7 @@
 //   REACT_APP_JIRA_EMAIL
 //   REACT_APP_JIRA_API_TOKEN
 //
-// PUBLIC_INTERFACE
+ // PUBLIC_INTERFACE
 export const JiraEnv = {
   /** Returns env vars safely from process.env (CRA). */
   get() {
@@ -32,6 +32,14 @@ export const JiraEnv = {
     if (!site) return '';
     const hasProtocol = site.startsWith('http://') || site.startsWith('https://');
     return hasProtocol ? site : `https://${site}`;
+  },
+  /**
+   * Build an API URL preferring the /jira proxy when available.
+   * Example: apiPath('/rest/api/3/field') => '/jira/rest/api/3/field' in dev, or 'https://site/rest/api/3/field' in prod.
+   */
+  apiPath(path) {
+    const clean = path.startsWith('/') ? path : `/${path}`;
+    return shouldUseProxy() ? `/jira${clean}` : `${JiraEnv.baseUrl()}${clean}`;
   },
 };
 
@@ -66,6 +74,10 @@ async function safeFetch(url, options = {}) {
       } catch {
         // ignore
       }
+      // Add hints for common status codes
+      if (res.status === 401 || res.status === 403) {
+        msg += ' • Authentication failed. Verify REACT_APP_JIRA_EMAIL and REACT_APP_JIRA_API_TOKEN.';
+      }
       throw new Error(msg);
     }
     const ct = res.headers.get('content-type') || '';
@@ -74,17 +86,39 @@ async function safeFetch(url, options = {}) {
     }
     return res.text();
   } catch (e) {
+    // Detect likely CORS/network errors (TypeError: Failed to fetch)
+    const raw = String(e?.message || '');
+    let hint = '';
+    if (/Failed to fetch|NetworkError/i.test(raw)) {
+      if (!shouldUseProxy()) {
+        hint =
+          ' • Possible CORS/network failure. In dev, enable the Jira dev proxy (src/setupProxy.js) or run through a backend.';
+      } else {
+        hint =
+          ' • Possible proxy/network failure. Ensure src/setupProxy.js is active and .env has Jira site/email/token, then restart `npm start`.';
+      }
+    }
     // Mask potential email/token; never log Authorization
-    const masked = String(e?.message || 'Network error')
+    const masked = (raw || 'Network error')
       .replaceAll(process.env.REACT_APP_JIRA_EMAIL || '', '[email]')
       .replaceAll(process.env.REACT_APP_JIRA_API_TOKEN || '', '[token]');
-    throw new Error(masked);
+    throw new Error(`${masked}${hint}`);
   }
 }
 
 function truncate(str, n) {
   if (!str) return '';
   return str.length > n ? `${str.slice(0, n)}…` : str;
+}
+
+/**
+ * INTERNAL: decide if we should use the CRA dev proxy (/jira) in development.
+ * Not a React hook, just an environment check.
+ */
+function shouldUseProxy() {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const { site } = JiraEnv.get();
+  return isDev && Boolean(site);
 }
 
 // PUBLIC_INTERFACE
@@ -101,9 +135,7 @@ export async function getBoards(projectKey, signal) {
       ],
     };
   }
-  const url = `${JiraEnv.baseUrl()}/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(
-    projectKey
-  )}`;
+  const url = JiraEnv.apiPath(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}`);
   return safeFetch(url, {
     method: 'GET',
     headers: { ...buildAuthHeader() },
@@ -135,9 +167,7 @@ export async function getActiveSprints(boardId, signal) {
       ],
     };
   }
-  const url = `${JiraEnv.baseUrl()}/rest/agile/1.0/board/${encodeURIComponent(
-    boardId
-  )}/sprint?state=active`;
+  const url = JiraEnv.apiPath(`/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active`);
   return safeFetch(url, {
     method: 'GET',
     headers: { ...buildAuthHeader() },
@@ -149,7 +179,7 @@ export async function getActiveSprints(boardId, signal) {
 // Fallback common id customfield_10016. If not present, return null to default later.
 async function detectStoryPointsField(signal) {
   if (!JiraEnv.isConfigured()) return 'customfield_10016'; // plausible default for mock
-  const url = `${JiraEnv.baseUrl()}/rest/api/3/field`;
+  const url = JiraEnv.apiPath(`/rest/api/3/field`);
   const fields = await safeFetch(url, {
     method: 'GET',
     headers: { ...buildAuthHeader() },
@@ -224,7 +254,7 @@ export async function searchIssuesJQL(jql, fields = ['summary', 'status', 'assig
   const fieldSet = Array.from(
     new Set([...fields, spField].filter(Boolean))
   );
-  const url = `${JiraEnv.baseUrl()}/rest/api/3/search`;
+  const url = JiraEnv.apiPath(`/rest/api/3/search`);
   const body = JSON.stringify({
     jql,
     fields: fieldSet,
@@ -239,6 +269,24 @@ export async function searchIssuesJQL(jql, fields = ['summary', 'status', 'assig
 }
 
 // PUBLIC_INTERFACE
+export async function getMyself(signal) {
+  /**
+   * PUBLIC_INTERFACE
+   * Health check endpoint to validate connectivity and auth.
+   * GET /rest/api/3/myself
+   */
+  if (!JiraEnv.isConfigured()) {
+    // Demo health OK if not configured
+    return { active: true, demo: true };
+  }
+  const url = JiraEnv.apiPath('/rest/api/3/myself');
+  return safeFetch(url, {
+    method: 'GET',
+    headers: { ...buildAuthHeader() },
+    signal,
+  });
+}
+
 export function extractIssueInfo(issue, storyPointsFieldId = 'customfield_10016') {
   /**
    * Normalize essential fields from a Jira issue.
