@@ -43,7 +43,11 @@ export const JiraEnv = {
   },
 };
 
-// INTERNAL: Build safe auth header; never log it.
+/**
+ * INTERNAL: Build safe auth header; never log it.
+ * Note: In development we prefer to rely on the CRA dev proxy injecting Authorization server-side.
+ * We still include Authorization here to support non-proxy environments (e.g., production demo or custom backend).
+ */
 function buildAuthHeader() {
   const { email, token } = JiraEnv.get();
   if (!email || !token) return {};
@@ -61,22 +65,30 @@ async function safeFetch(url, options = {}) {
         'Content-Type': 'application/json',
         ...(options.headers || {}),
       },
+      // Never include credentials/cookies to Jira to avoid XSRF/cookie auth paths
+      credentials: 'omit',
     });
     if (!res.ok) {
       let msg = `Jira API error: ${res.status} ${res.statusText}`.trim();
-      // Try to extract message without leaking secrets
+      let bodyText = '';
       try {
-        const t = await res.text();
-        if (t) {
-          // Do not include headers or auth info, only response text if safe
-          msg += ` • ${truncate(t, 300)}`;
+        bodyText = await res.text();
+        if (bodyText) {
+          msg += ` • ${truncate(bodyText, 300)}`;
         }
       } catch {
         // ignore
       }
-      // Add hints for common status codes
-      if (res.status === 401 || res.status === 403) {
-        msg += ' • Authentication failed. Verify REACT_APP_JIRA_EMAIL and REACT_APP_JIRA_API_TOKEN.';
+      if (res.status === 401) {
+        msg += ' • 401 Unauthorized. Check REACT_APP_JIRA_EMAIL/API_TOKEN, and ensure the user has API access.';
+      }
+      if (res.status === 403) {
+        msg += ' • 403 Forbidden (possible XSRF/auth issue). Ensure the dev proxy injects Basic auth and that no cookies are being sent. Endpoints should be /rest/api/3/* or /rest/agile/1.0/*.';
+        if (shouldUseProxy()) {
+          msg += ' • Using /jira proxy: verify .env and restart `npm start`.';
+        } else {
+          msg += ' • Not using proxy: browser CORS may block requests. Use the dev proxy or a backend.';
+        }
       }
       throw new Error(msg);
     }
@@ -86,7 +98,6 @@ async function safeFetch(url, options = {}) {
     }
     return res.text();
   } catch (e) {
-    // Detect likely CORS/network errors (TypeError: Failed to fetch)
     const raw = String(e?.message || '');
     let hint = '';
     if (/Failed to fetch|NetworkError/i.test(raw)) {
@@ -98,7 +109,6 @@ async function safeFetch(url, options = {}) {
           ' • Possible proxy/network failure. Ensure src/setupProxy.js is active and .env has Jira site/email/token, then restart `npm start`.';
       }
     }
-    // Mask potential email/token; never log Authorization
     const masked = (raw || 'Network error')
       .replaceAll(process.env.REACT_APP_JIRA_EMAIL || '', '[email]')
       .replaceAll(process.env.REACT_APP_JIRA_API_TOKEN || '', '[token]');

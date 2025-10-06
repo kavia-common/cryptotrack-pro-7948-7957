@@ -25,6 +25,18 @@ module.exports = function setupProxy(app) {
 
   const target = site.startsWith('http') ? site : `https://${site}`;
 
+  // Health check endpoint for local diagnostics, returns 200/JSON while proxy is configured
+  app.get('/jira/health', (req, res) => {
+    const ok = Boolean(site && email && token);
+    res.status(ok ? 200 : 500).json({
+      ok,
+      site: !!site,
+      email: !!email,
+      token: !!token,
+      note: 'This is the local dev proxy health. It does not call Jira. Use /jira/rest/api/3/myself for real auth check.'
+    });
+  });
+
   app.use(
     '/jira',
     createProxyMiddleware({
@@ -36,18 +48,44 @@ module.exports = function setupProxy(app) {
         '^/jira': '/', // strip /jira prefix
       },
       onProxyReq: (proxyReq, req, res) => {
-        // Inject Basic auth header if available, but never log secrets
+        // Always inject Basic auth header server-side, never rely on browser credentials.
         if (email && token) {
           const basic = Buffer.from(`${email}:${token}`).toString('base64');
           proxyReq.setHeader('Authorization', `Basic ${basic}`);
         }
-        // Ensure JSON for Jira REST
+
+        // Force JSON headers for Jira REST v3 to avoid XSRF/cookie content-type mismatches
         proxyReq.setHeader('Accept', 'application/json');
+        // Respect original content-type if explicitly set by client, else default to JSON
+        if (!proxyReq.getHeader('content-type')) {
+          proxyReq.setHeader('Content-Type', 'application/json');
+        }
+
+        // Remove any cookie-based auth headers that could trigger XSRF checks
+        proxyReq.removeHeader?.('Cookie');
+        proxyReq.removeHeader?.('cookie');
+        proxyReq.removeHeader?.('X-Atlassian-Token'); // ensure not sending incorrect tokens
+      },
+      onProxyRes: (proxyRes, req, res) => {
+        // Improve diagnostics: forward status codes and add hint headers client can read
+        const status = proxyRes.statusCode || 0;
+        // Add non-sensitive hints for client-side diagnostics (not exposing secrets)
+        res.setHeader('X-Jira-Proxy-Status', String(status));
+        res.setHeader('X-Jira-Proxy-Target', new URL(target).host);
+        // Strip set-cookie from Jira to avoid browser keeping cookies that might cause XSRF
+        if (proxyRes.headers) {
+          delete proxyRes.headers['set-cookie'];
+          delete proxyRes.headers['Set-Cookie'];
+        }
       },
       onError: (err, req, res) => {
         console.error('[setupProxy] Jira proxy error:', err?.message || err);
         res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Proxy error contacting Jira. Check your .env and internet connectivity.' }));
+        res.end(JSON.stringify({
+          error: 'Proxy error contacting Jira.',
+          suggestion: 'Verify .env REACT_APP_JIRA_* values and internet connectivity, then restart `npm start`.',
+          detail: err?.message || 'Unknown error'
+        }));
       },
     })
   );
