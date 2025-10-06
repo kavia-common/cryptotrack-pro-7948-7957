@@ -25,6 +25,11 @@ const Sidebar = () => {
           <span>📈</span>
           <span>Analysis</span>
         </NavLink>
+        <div className="nav-section-title">Integrations</div>
+        <NavLink to="/jira/burndown" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <span>🧭</span>
+          <span>Jira</span>
+        </NavLink>
       </nav>
     </aside>
   );

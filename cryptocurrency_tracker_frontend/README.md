@@ -39,23 +39,35 @@ Pages in the Neon Fun dashboard:
 - Alerts: create “above/below” alerts. Alerts are checked against live snapshots while the page is open.
 - Clear cache: reload the page to naturally clear in-memory cache; session-based TTL cleanup runs periodically and on reload.
 
-## Environment Variables (optional)
+## Environment Variables
 
 CoinGecko is public and works out of the box with defaults. In corporate networks or when using a proxy/gateway, you can override the base URL and optionally pass an API key header.
 
-Supported variables:
+Supported variables (CoinGecko):
 - REACT_APP_COINGECKO_BASE_URL: defaults to https://api.coingecko.com/api/v3
 - REACT_APP_COINGECKO_API_KEY: if set, will be sent as header x-cg-pro-api-key
 
-How to set:
-- Create a .env file in the project root (same folder as package.json).
-- Add lines such as:
-  - REACT_APP_COINGECKO_BASE_URL=https://api.coingecko.com/api/v3
-  - REACT_APP_COINGECKO_API_KEY=your_key_if_required
-- Restart the dev server after changing .env. Never commit real secrets.
+Jira integration (optional; enables Jira Burndown page):
+- REACT_APP_JIRA_SITE_DOMAIN: your Jira Cloud domain (e.g., your-company.atlassian.net)
+- REACT_APP_JIRA_PROJECT_KEY: default project key (e.g., CRYPTO)
+- REACT_APP_JIRA_EMAIL: Jira account email used to generate API token
+- REACT_APP_JIRA_API_TOKEN: Jira API token from https://id.atlassian.com/manage-profile/security/api-tokens
 
-Code reference:
-- src/utils/api.js reads REACT_APP_COINGECKO_BASE_URL and REACT_APP_COINGECKO_API_KEY and builds the request headers accordingly.
+How to set:
+- Copy .env.example to .env in the project root (same folder as package.json).
+- Fill in the Jira variables. Never commit real secrets.
+- Restart the dev server after changing .env.
+
+Security note:
+- This app is frontend-only; using Jira credentials from the browser is not secure for production.
+- We strongly recommend adding a backend proxy to store secrets server-side and forward Jira requests.
+- The UI shows a warning when running without a backend; a demo mode is available to preview the burndown page.
+
+Code references:
+- src/utils/api.js reads CoinGecko env vars.
+- src/client/jiraClient.js reads Jira env vars. It uses Basic Auth and provides a mock fallback when env vars are missing.
+- src/utils/burndown.js computes daily remaining vs ideal lines for the sprint duration.
+- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table.
 
 ## Project Structure
 
