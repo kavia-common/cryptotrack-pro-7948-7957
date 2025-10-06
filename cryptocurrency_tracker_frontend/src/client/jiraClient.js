@@ -31,7 +31,7 @@ export const JiraEnv = {
     const { site } = JiraEnv.get();
     if (!site) return '';
     const hasProtocol = site.startsWith('http://') || site.startsWith('https://');
-    return hasProtocol ? site : `https://${site}`;
+    return hasProtocol ? site.replace(/^http:\/\//i, 'https://') : `https://${site}`;
   },
   /**
    * Build an API URL preferring the /jira proxy when available.
@@ -53,6 +53,13 @@ function buildAuthHeader() {
   if (!email || !token) return {};
   const basic = btoa(`${email}:${token}`);
   return { Authorization: `Basic ${basic}` };
+}
+
+let lastJiraError = null;
+export function getLastJiraError() {
+  // PUBLIC_INTERFACE
+  /** Returns last Jira error object captured by client, or null. */
+  return lastJiraError;
 }
 
 // INTERNAL: Safe fetch wrapper that masks secrets in errors.
@@ -80,19 +87,27 @@ async function safeFetch(url, options = {}) {
         // ignore
       }
       if (res.status === 401) {
-        msg += ' • 401 Unauthorized. Check REACT_APP_JIRA_EMAIL/API_TOKEN, and ensure the user has API access.';
+        msg += ' • 401 Unauthorized. Check REACT_APP_JIRA_EMAIL/API_TOKEN, user permissions, and that the API token is valid.';
       }
       if (res.status === 403) {
-        msg += ' • 403 Forbidden (possible XSRF/auth issue). Ensure the dev proxy injects Basic auth and that no cookies are being sent. Endpoints should be /rest/api/3/* or /rest/agile/1.0/*.';
+        msg += ' • 403 Forbidden (likely XSRF/auth). The dev proxy must inject Basic auth and strip cookies. Ensure all calls go through /jira/rest/... (not direct domain) and that no cookies are sent.';
         if (shouldUseProxy()) {
-          msg += ' • Using /jira proxy: verify .env and restart `npm start`.';
+          msg += ' • Using /jira proxy: verify .env REACT_APP_JIRA_* and restart `npm start`.';
         } else {
-          msg += ' • Not using proxy: browser CORS may block requests. Use the dev proxy or a backend.';
+          msg += ' • Not using proxy: browser CORS may block requests. Use the dev proxy or a backend proxy.';
         }
       }
+      lastJiraError = {
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        bodySnippet: truncate(bodyText, 300),
+        ts: Date.now(),
+      };
       throw new Error(msg);
     }
     const ct = res.headers.get('content-type') || '';
+    lastJiraError = null;
     if (ct.includes('application/json')) {
       return res.json();
     }
@@ -100,7 +115,7 @@ async function safeFetch(url, options = {}) {
   } catch (e) {
     const raw = String(e?.message || '');
     let hint = '';
-    if (/Failed to fetch|NetworkError/i.test(raw)) {
+    if (/Failed to fetch|NetworkError|TypeError: fetch failed/i.test(raw)) {
       if (!shouldUseProxy()) {
         hint =
           ' • Possible CORS/network failure. In dev, enable the Jira dev proxy (src/setupProxy.js) or run through a backend.';
@@ -112,6 +127,13 @@ async function safeFetch(url, options = {}) {
     const masked = (raw || 'Network error')
       .replaceAll(process.env.REACT_APP_JIRA_EMAIL || '', '[email]')
       .replaceAll(process.env.REACT_APP_JIRA_API_TOKEN || '', '[token]');
+    lastJiraError = {
+      url,
+      status: 0,
+      statusText: 'NETWORK',
+      bodySnippet: masked.slice(0, 300),
+      ts: Date.now(),
+    };
     throw new Error(`${masked}${hint}`);
   }
 }
@@ -337,17 +359,27 @@ export async function searchIssuesJQL(jql, fields = ['summary', 'status', 'assig
   });
 }
 
-// PUBLIC_INTERFACE
 export async function getMyself(signal) {
   /**
    * PUBLIC_INTERFACE
    * Health check endpoint to validate connectivity and auth.
-   * GET /rest/api/3/myself
+   * Tries /jira/health (proxy-based) first, then falls back to /rest/api/3/myself.
    */
   if (!JiraEnv.isConfigured()) {
     // Demo health OK if not configured
     return { active: true, demo: true };
   }
+
+  // Prefer proxy health when available
+  if (shouldUseProxy()) {
+    try {
+      const health = await safeFetch('/jira/health', { method: 'GET', signal });
+      return health;
+    } catch (e) {
+      // fall through to direct /myself via proxy path
+    }
+  }
+
   const url = JiraEnv.apiPath('/rest/api/3/myself');
   return safeFetch(url, {
     method: 'GET',

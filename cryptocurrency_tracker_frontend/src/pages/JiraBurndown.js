@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Loading, ErrorState, Table, ToggleButton } from '../components/ui';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from 'recharts';
-import { JiraEnv, getBoards, getActiveSprints, getSprints, searchIssuesJQL, extractIssueInfo, getMyself, buildSprintlessJql, searchIssuesForSprintless } from '../client/jiraClient';
+import { JiraEnv, getBoards, getActiveSprints, getSprints, searchIssuesJQL, extractIssueInfo, getMyself, buildSprintlessJql, searchIssuesForSprintless, getLastJiraError } from '../client/jiraClient';
 import useCachedFetch from '../hooks/useCachedFetch';
 import { computeBurndown } from '../utils/burndown';
 
@@ -34,7 +34,7 @@ export default function JiraBurndown() {
 
   // Diagnostics panel
   const [showDiag, setShowDiag] = useState(false);
-  const [health, setHealth] = useState({ status: 'idle', detail: '' });
+  const [health, setHealth] = useState({ status: 'idle', detail: '', proxy: null });
 
   // Local proxy detection (not a hook): dev mode + site configured implies proxy available
   const proxyActive = (process.env.NODE_ENV !== 'production') && Boolean(env.site);
@@ -203,21 +203,51 @@ export default function JiraBurndown() {
                   className="btn btn-sm"
                   onClick={async () => {
                     try {
-                      setHealth({ status: 'loading', detail: '' });
+                      setHealth({ status: 'loading', detail: '', proxy: null });
                       const res = await getMyself();
-                      const who = res?.displayName || res?.emailAddress || res?.accountId || 'OK';
-                      setHealth({ status: 'ok', detail: String(who) });
+                      const who = res?.displayName || res?.accountId || (res?.ok ? 'OK' : 'Unknown');
+                      const proxyInfo = typeof res?.ok !== 'undefined'
+                        ? { ok: !!res.ok, status: res.status || 200 }
+                        : null;
+                      setHealth({ status: 'ok', detail: String(who), proxy: proxyInfo });
                     } catch (e) {
-                      setHealth({ status: 'error', detail: e?.message || 'Health check failed' });
+                      const last = getLastJiraError();
+                      setHealth({
+                        status: 'error',
+                        detail: e?.message || 'Health check failed',
+                        proxy: null,
+                        lastError: last ? {
+                          url: last.url,
+                          status: last.status,
+                          statusText: last.statusText,
+                          bodySnippet: last.bodySnippet
+                        } : null
+                      });
                     }
                   }}
                 >
-                  Run /myself
+                  Run Health
                 </button>
                 {health.status === 'loading' && <span className="small">Checking...</span>}
-                {health.status === 'ok' && <span className="small" style={{ color: '#10B981' }}>OK: {health.detail}</span>}
-                {health.status === 'error' && <span className="small" style={{ color: 'var(--error)' }}>{health.detail}</span>}
+                {health.status === 'ok' && (
+                  <span className="small" style={{ color: '#10B981' }}>
+                    OK: {health.detail} {health?.proxy ? `(proxy:${health.proxy.ok ? 'ok' : 'err'}, status:${health.proxy.status})` : ''}
+                  </span>
+                )}
+                {health.status === 'error' && (
+                  <span className="small" style={{ color: 'var(--error)' }}>
+                    {health.detail}
+                  </span>
+                )}
               </div>
+              {health.status === 'error' && health?.lastError && (
+                <div className="small" style={{ marginTop: 8 }}>
+                  <div><strong>Last error:</strong></div>
+                  <div>URL: {String(health.lastError.url || '')}</div>
+                  <div>Status: {String(health.lastError.status)} {String(health.lastError.statusText || '')}</div>
+                  <div>Body: {(health.lastError.bodySnippet || '').slice(0, 200)}</div>
+                </div>
+              )}
             </div>
           </div>
           {!isConfigured && (
