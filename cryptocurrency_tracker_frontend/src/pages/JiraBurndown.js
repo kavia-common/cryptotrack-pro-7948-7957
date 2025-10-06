@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Loading, ErrorState, Table, ToggleButton } from '../components/ui';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from 'recharts';
-import { JiraEnv, getBoards, getActiveSprints, searchIssuesJQL, extractIssueInfo, getMyself } from '../client/jiraClient';
+import { JiraEnv, getBoards, getActiveSprints, getSprints, searchIssuesJQL, extractIssueInfo, getMyself, buildSprintlessJql, searchIssuesForSprintless } from '../client/jiraClient';
 import useCachedFetch from '../hooks/useCachedFetch';
 import { computeBurndown } from '../utils/burndown';
 
@@ -21,6 +21,11 @@ export default function JiraBurndown() {
   const [projectKey, setProjectKey] = useState(env.projectKey || '');
   const [selectedBoard, setSelectedBoard] = useState('');
   const [selectedSprint, setSelectedSprint] = useState('');
+  const [showAllBoards, setShowAllBoards] = useState(false); // default filter to Scrum
+  const [kanbanNotice, setKanbanNotice] = useState(''); // banner when board has no sprints
+  const [sprintlessMode, setSprintlessMode] = useState(false);
+  const [rangeStart, setRangeStart] = useState(() => defaultStartISO());
+  const [rangeEnd, setRangeEnd] = useState(() => defaultEndISO());
   const [useDemo, setUseDemo] = useState(!isConfigured); // default to demo if not configured
   const [burndown, setBurndown] = useState([]);
   const [issues, setIssues] = useState([]);
@@ -46,7 +51,12 @@ export default function JiraBurndown() {
     immediate: !!projectKey || !!env.projectKey || useDemo,
   });
 
-  const boards = Array.isArray(boardsData?.values) ? boardsData.values : [];
+  const boardsRaw = Array.isArray(boardsData?.values) ? boardsData.values : [];
+  const boards = useMemo(() => {
+    if (showAllBoards) return boardsRaw;
+    // filter to Scrum or supportsSprints boards
+    return boardsRaw.filter((b) => String(b?.type).toLowerCase() === 'scrum' || b?.supportsSprints);
+  }, [boardsRaw, showAllBoards]);
 
   // Sprints for selected board
   const sprintsKey = `jira:sprints:${selectedBoard}`;
@@ -55,7 +65,14 @@ export default function JiraBurndown() {
     ttlMs: 60_000,
     fetcher: async (signal) => {
       if (!selectedBoard) return { values: [] };
-      return getActiveSprints(selectedBoard, signal);
+      const res = await getSprints(selectedBoard, { state: 'active' }, signal);
+      // Set a banner if board doesn't support sprints
+      if (res?.error?.code === 'NO_SPRINTS') {
+        setKanbanNotice('This board does not support sprints (likely Kanban). Choose a Scrum board for sprint burndown or enable Sprintless mode.');
+        return { values: [] };
+      }
+      setKanbanNotice('');
+      return res;
     },
     deps: [selectedBoard],
     immediate: !!selectedBoard,
@@ -67,7 +84,7 @@ export default function JiraBurndown() {
     return sprints.find((s) => String(s.id) === String(selectedSprint));
   }, [sprints, selectedSprint]);
 
-  const canLoad = Boolean((projectKey || env.projectKey) && selectedBoard && selectedSprint);
+  const canLoad = Boolean((projectKey || env.projectKey) && selectedBoard && selectedSprint && !sprintlessMode);
 
   async function handleLoad() {
     setLoading(true);
@@ -75,24 +92,39 @@ export default function JiraBurndown() {
     setBurndown([]);
     setIssues([]);
     try {
-      // Form JQL: sprint = active sprint id and project key
       const key = projectKey || env.projectKey || 'DEMO';
-      const jql = `project = ${key} AND sprint = ${selectedSprint}`;
-      const result = await searchIssuesJQL(jql, ['summary', 'status', 'assignee', 'updated', 'resolutiondate'], undefined);
-      const storyPointsFieldId = 'customfield_10016'; // used by extract; dynamic detection handled in searchIssuesJQL
-      const normalized = (result?.issues || []).map((it) => extractIssueInfo(it, storyPointsFieldId));
-      setIssues(normalized);
 
-      // Compute burndown using sprint dates
-      const startISO = selectedSprintObj?.startDate || defaultStartISO();
-      const endISO = selectedSprintObj?.endDate || defaultEndISO();
-      const data = computeBurndown({
-        startDateISO: startISO,
-        endDateISO: endISO,
-        issues: normalized,
-        storyPointsFieldId,
-      });
-      setBurndown(data);
+      if (sprintlessMode) {
+        // Sprintless: remaining issues count over a date range
+        const extra = ''; // reserved for future filters
+        const res = await searchIssuesForSprintless(key, extra, undefined);
+        const items = Array.isArray(res?.issues) ? res.issues : [];
+
+        const series = computeSprintlessBurndownByCount({
+          startDateISO: rangeStart,
+          endDateISO: rangeEnd,
+          issues: items,
+        });
+        setIssues(items.map((it) => extractIssueInfo(it))); // show minimal table
+        setBurndown(series);
+      } else {
+        // Sprint-specific burndown
+        const jql = `project = ${key} AND sprint = ${selectedSprint}`;
+        const result = await searchIssuesJQL(jql, ['summary', 'status', 'assignee', 'updated', 'resolutiondate'], undefined);
+        const storyPointsFieldId = 'customfield_10016'; // used by extract; dynamic detection handled in searchIssuesJQL
+        const normalized = (result?.issues || []).map((it) => extractIssueInfo(it, storyPointsFieldId));
+        setIssues(normalized);
+
+        const startISO = selectedSprintObj?.startDate || defaultStartISO();
+        const endISO = selectedSprintObj?.endDate || defaultEndISO();
+        const data = computeBurndown({
+          startDateISO: startISO,
+          endDateISO: endISO,
+          issues: normalized,
+          storyPointsFieldId,
+        });
+        setBurndown(data);
+      }
     } catch (e) {
       setError(e?.message || 'Failed to load Jira data');
     } finally {
@@ -206,6 +238,11 @@ export default function JiraBurndown() {
       )}
 
       <Card title="Controls" subtitle="Select project, board, and sprint" className="card-accent-amber">
+        {kanbanNotice && (
+          <div className="neon-badge neon-badge--warning" style={{ marginBottom: 8 }}>
+            {kanbanNotice}
+          </div>
+        )}
         <div className="grid grid-3">
           <div className="col">
             <label className="small" htmlFor="projectKey">Project Key</label>
@@ -220,7 +257,17 @@ export default function JiraBurndown() {
           </div>
 
           <div className="col">
-            <label className="small" htmlFor="board">Board</label>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="small" htmlFor="board">Board</label>
+              <div className="row">
+                <ToggleButton
+                  active={showAllBoards}
+                  onToggle={() => setShowAllBoards(v => !v)}
+                  onLabel="Show all boards"
+                  offLabel="Only Scrum"
+                />
+              </div>
+            </div>
             <select
               id="board"
               className="select"
@@ -230,7 +277,9 @@ export default function JiraBurndown() {
             >
               <option value="">Select board</option>
               {boards.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
+                <option key={b.id} value={b.id}>
+                  {b.name}{b?.supportsSprints === false ? ' (No sprints)' : ''}
+                </option>
               ))}
             </select>
             <div className="row" style={{ gap: 8 }}>
@@ -244,13 +293,23 @@ export default function JiraBurndown() {
           </div>
 
           <div className="col">
-            <label className="small" htmlFor="sprint">Sprint</label>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="small" htmlFor="sprint">Sprint</label>
+              <div className="row">
+                <ToggleButton
+                  active={sprintlessMode}
+                  onToggle={() => setSprintlessMode(v => !v)}
+                  onLabel="Sprintless mode"
+                  offLabel="Sprintless mode"
+                />
+              </div>
+            </div>
             <select
               id="sprint"
               className="select"
               value={selectedSprint}
               onChange={(e) => setSelectedSprint(e.target.value)}
-              disabled={!selectedBoard || sprintsLoading}
+              disabled={!selectedBoard || sprintsLoading || sprintlessMode}
             >
               <option value="">Select active sprint</option>
               {sprints.map((s) => (
@@ -259,27 +318,37 @@ export default function JiraBurndown() {
                 </option>
               ))}
             </select>
-            <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-sm" onClick={refetchSprints} disabled={!selectedBoard || sprintsLoading}>
+            <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-sm" onClick={refetchSprints} disabled={!selectedBoard || sprintsLoading || sprintlessMode}>
                 Reload Sprints
               </button>
-              {(sprintsError) && <span className="small" style={{ color: 'var(--error)' }}>{sprintsError}</span>}
+              {sprintsError && <span className="small" style={{ color: 'var(--error)' }}>{sprintsError}</span>}
+              {sprintlessMode && (
+                <div className="row" style={{ gap: 6 }}>
+                  <label className="small" htmlFor="rangeStart">Start</label>
+                  <input id="rangeStart" type="date" className="input" value={toDateInput(rangeStart)} onChange={(e) => setRangeStart(fromDateInput(e.target.value))} />
+                  <label className="small" htmlFor="rangeEnd">End</label>
+                  <input id="rangeEnd" type="date" className="input" value={toDateInput(rangeEnd)} onChange={(e) => setRangeEnd(fromDateInput(e.target.value))} />
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         <div className="spacer-md" />
-        <button className="btn btn-primary" onClick={handleLoad} disabled={!canLoad || loading}>
+        <button className="btn btn-primary" onClick={handleLoad} disabled={loading || (!sprintlessMode && !canLoad)}>
           {loading ? 'Loading...' : 'Load Burndown'}
         </button>
       </Card>
 
       {error && <ErrorState message={error} onRetry={handleLoad} />}
 
-      <Card title="Burndown Chart" subtitle="Remaining vs Ideal" className="card-accent-emerald">
+      <Card title={sprintlessMode ? 'Burndown Chart (Sprintless by issue count)' : 'Burndown Chart'} subtitle={sprintlessMode ? 'Remaining issues by count over selected date range' : 'Remaining vs Ideal'} className="card-accent-emerald">
         {!loading && !hasChart && (
           <div className="small muted" style={{ textAlign: 'center', padding: 20 }}>
-            Choose project, board, and sprint, then click "Load Burndown".
+            {sprintlessMode
+              ? 'Choose project and board, select a date range, then click "Load Burndown".'
+              : 'Choose project, board, and sprint, then click "Load Burndown".'}
           </div>
         )}
         {loading && <Loading text="Loading Jira issues and computing burndown..." />}
@@ -313,6 +382,74 @@ function defaultStartISO() {
   const d = new Date();
   d.setDate(d.getDate() - 7);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+}
+
+/**
+ * Sprintless burndown: count remaining issues per day (no story points) within range.
+ * We consider an issue "remaining" if resolutiondate is null or after the day.
+ */
+function computeSprintlessBurndownByCount({ startDateISO, endDateISO, issues = [] }) {
+  const days = enumerateDays(startDateISO, endDateISO);
+  if (!days.length) return [];
+  // Precompute resolution day for each issue (UTC date string) or null
+  const normalized = issues.map((it) => {
+    const res = it?.fields?.resolutiondate || it?.resolutiondate || null;
+    return { resolvedDay: res ? toDayISO(res) : null };
+  });
+  const total = normalized.length;
+  const len = days.length;
+  let remaining = total;
+  const completionByDay = new Map();
+  normalized.forEach((it) => {
+    if (!it.resolvedDay) return;
+    if (it.resolvedDay >= days[0] && it.resolvedDay <= days[len - 1]) {
+      completionByDay.set(it.resolvedDay, (completionByDay.get(it.resolvedDay) || 0) + 1);
+    }
+  });
+
+  const data = [];
+  days.forEach((d, idx) => {
+    const dec = completionByDay.get(d) || 0;
+    remaining = Math.max(0, remaining - dec);
+    const ideal = total * (1 - idx / (len - 1 || 1));
+    data.push({ date: d, remaining, ideal: Math.round(ideal * 100) / 100 });
+  });
+  return data;
+}
+
+function enumerateDays(startISO, endISO) {
+  const out = [];
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return out;
+  const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  while (cur.getTime() <= last.getTime()) {
+    out.push(toDayISO(cur));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function toDayISO(d) {
+  const date = d instanceof Date ? d : new Date(d);
+  const y = date.getUTCFullYear();
+  const m = `${date.getUTCMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getUTCDate()}`.padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function toDateInput(iso) {
+  // Convert YYYY-MM-DD or ISO to yyyy-mm-dd
+  const s = toDayISO(iso);
+  return s;
+}
+
+function fromDateInput(v) {
+  // v is yyyy-mm-dd, convert to UTC midnight ISO
+  if (!v) return defaultStartISO();
+  const [y, m, d] = v.split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).toISOString();
 }
 
 function defaultEndISO() {

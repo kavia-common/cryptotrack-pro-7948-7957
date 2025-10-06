@@ -9,6 +9,7 @@ Pages in the Neon Fun dashboard:
 - Portfolio: Local holdings with validation, live valuation, and PnL calculation using latest prices.
 - Alerts: Client-side price alerts persisted locally; evaluation occurs while the Alerts page is open.
 - Analysis: Select a coin and timeframe to view a Recharts line chart with KPIs.
+- Jira Burndown: Optional integration to visualize sprint progress from Jira (Scrum), plus a sprintless fallback mode for Kanban.
 
 ## Features
 
@@ -21,6 +22,7 @@ Pages in the Neon Fun dashboard:
 - Portfolio: localStorage-based holdings with input validation and live valuation using the latest market snapshot.
 - Alerts: client-side alerts stored in localStorage; simple “above/below” thresholds are evaluated while the Alerts page is open.
 - Analysis: coin selector, timeframe selector, line chart via Recharts, and KPIs (min, max, change).
+- Jira Burndown: Scrum boards (with sprints) supported; Kanban boards (no sprints) show a banner with an option to use Sprintless mode (burndown by remaining issue count over a date range).
 
 ## Quick Start
 
@@ -36,7 +38,7 @@ Pages in the Neon Fun dashboard:
 - Search and sort: search by name or symbol (e.g., eth). Click the small sort icon in table headers “Price,” “24h,” and “Market Cap” to toggle the sort key and direction.
 - Pagination: change the page size via the selector and navigate with Prev/Next. The range label shows which rows you are viewing.
 - Portfolio: enter symbol, quantity, and buy price. Matching coin info is autofilled from cached markets when available. Data is stored in localStorage.
-- Alerts: create “above/below” alerts. Alerts are checked against live snapshots while the page is open.
+- Alerts: create “above/below” alerts. Alerts are checked against live snapshots while the Alerts page is open.
 - Clear cache: reload the page to naturally clear in-memory cache; session-based TTL cleanup runs periodically and on reload.
 
 ## Environment Variables
@@ -71,6 +73,10 @@ Diagnostics & troubleshooting:
   - 401/403: Verify REACT_APP_JIRA_EMAIL and REACT_APP_JIRA_API_TOKEN are correct and belong to an account with API access.
   - Board list empty: Confirm project key exists and has a Scrum board. We query /rest/agile/1.0/board?projectKeyOrId={key}.
   - No active sprint: Start a sprint on the board or select a different sprint when available.
+  - 400 "The board does not support sprints": This typically occurs if you selected a Kanban board. The app now:
+    - Filters boards to Scrum by default (toggle "Show all boards" to include Kanban).
+    - Shows a banner and disables Sprint selection when a Kanban board is chosen.
+    - Offers a "Sprintless mode" that computes a burndown by remaining issue count over a chosen date range (labelled clearly as Sprintless by issue count).
 
 Security note:
 - This app is frontend-only; using Jira credentials from the browser is not secure for production.
@@ -80,8 +86,8 @@ Security note:
 Code references:
 - src/utils/api.js reads CoinGecko env vars.
 - src/client/jiraClient.js reads Jira env vars and prefers the /jira proxy during development; it also provides a mock fallback when env vars are missing.
-- src/utils/burndown.js computes daily remaining vs ideal lines for the sprint duration.
-- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table and includes a diagnostics panel.
+- src/utils/burndown.js computes daily remaining vs ideal lines for the sprint duration; the Jira page includes a sprintless count-based fallback.
+- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table, includes a diagnostics panel, Scrum filter / Kanban banner, and Sprintless mode.
 
 ## Project Structure
 
@@ -96,7 +102,7 @@ Code references:
 - src/utils:
   - api.js: CoinGecko helpers for markets, coin history, trending, and coin details.
   - storage.js: localStorage helpers for portfolio and alerts.
-- src/pages: LivePrices, Portfolio, Alerts, Analysis.
+- src/pages: LivePrices, Portfolio, Alerts, Analysis, JiraBurndown.
 
 ## Theming
 

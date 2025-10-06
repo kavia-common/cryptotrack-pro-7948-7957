@@ -121,34 +121,80 @@ function shouldUseProxy() {
   return isDev && Boolean(site);
 }
 
+/**
+ * INTERNAL: Attempt to probe if a board supports sprints by fetching sprints list.
+ * Returns boolean and never throws; treats 400 "does not support sprints" as false.
+ */
+async function probeBoardSupportsSprints(boardId, signal) {
+  try {
+    const url = JiraEnv.apiPath(`/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?maxResults=1`);
+    await safeFetch(url, {
+      method: 'GET',
+      headers: { ...buildAuthHeader() },
+      signal,
+    });
+    return true;
+  } catch (e) {
+    const msg = String(e?.message || '').toLowerCase();
+    if (msg.includes('does not support sprints') || msg.includes('400')) {
+      return false;
+    }
+    // For other errors (network, auth), do not assert; return true to avoid hiding boards.
+    return true;
+  }
+}
+
 // PUBLIC_INTERFACE
 export async function getBoards(projectKey, signal) {
   /**
    * Fetch boards for a project key using Jira Agile API.
    * GET /rest/agile/1.0/board?projectKeyOrId={projectKey}
+   * Annotates each board with { supportsSprints: boolean, type?: 'scrum'|'kanban'|... } when possible.
    */
   if (!JiraEnv.isConfigured()) {
-    // Mock boards
+    // Mock boards with one scrum-like and one kanban-like for demo UX
     return {
       values: [
-        { id: 101, name: `Demo Board (${projectKey || 'DEMO'})` },
+        { id: 101, name: `Demo Scrum Board (${projectKey || 'DEMO'})`, type: 'scrum', supportsSprints: true },
+        { id: 102, name: `Demo Kanban Board (${projectKey || 'DEMO'})`, type: 'kanban', supportsSprints: false },
       ],
     };
   }
   const url = JiraEnv.apiPath(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}`);
-  return safeFetch(url, {
+  const base = await safeFetch(url, {
     method: 'GET',
     headers: { ...buildAuthHeader() },
     signal,
   });
+
+  const values = Array.isArray(base?.values) ? base.values : [];
+  // If Jira includes 'type', use it; otherwise, probe one-by-one (best-effort).
+  const annotated = [];
+  for (const b of values) {
+    const type = b?.type || b?.typeName || '';
+    let supports = typeof b?.supportsSprints === 'boolean' ? b.supportsSprints : undefined;
+
+    if (typeof supports !== 'boolean') {
+      if (String(type).toLowerCase() === 'scrum') supports = true;
+      else if (String(type).toLowerCase() === 'kanban') supports = false;
+    }
+
+    if (typeof supports !== 'boolean') {
+      supports = await probeBoardSupportsSprints(b.id, signal);
+    }
+
+    annotated.push({ ...b, type, supportsSprints: !!supports });
+  }
+
+  return { ...base, values: annotated };
 }
 
-// PUBLIC_INTERFACE
-export async function getActiveSprints(boardId, signal) {
-  /**
-   * Fetch active sprints for a board.
-   * GET /rest/agile/1.0/board/{boardId}/sprint?state=active
-   */
+/**
+ * PUBLIC_INTERFACE
+ * Try to list sprints for a board with explicit error signaling for "no sprints".
+ * If Jira returns 400 "board does not support sprints", return { values: [], error: { code: 'NO_SPRINTS' } }.
+ */
+export async function getSprints(boardId, { state = 'active' } = {}, signal) {
   if (!JiraEnv.isConfigured()) {
     const today = new Date();
     const start = new Date(today);
@@ -157,22 +203,35 @@ export async function getActiveSprints(boardId, signal) {
     end.setDate(start.getDate() + 14);
     return {
       values: [
-        {
-          id: 201,
-          name: 'Demo Sprint',
-          state: 'active',
-          startDate: start.toISOString(),
-          endDate: end.toISOString(),
-        },
+        { id: 201, name: 'Demo Sprint', state: 'active', startDate: start.toISOString(), endDate: end.toISOString() },
       ],
     };
   }
-  const url = JiraEnv.apiPath(`/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active`);
-  return safeFetch(url, {
-    method: 'GET',
-    headers: { ...buildAuthHeader() },
-    signal,
-  });
+  const url = JiraEnv.apiPath(`/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=${encodeURIComponent(state)}`);
+  try {
+    const res = await safeFetch(url, {
+      method: 'GET',
+      headers: { ...buildAuthHeader() },
+      signal,
+    });
+    return res;
+  } catch (e) {
+    const msg = String(e?.message || '').toLowerCase();
+    if (msg.includes('does not support sprints') || msg.includes('400')) {
+      return { values: [], error: { code: 'NO_SPRINTS', message: 'The board does not support sprints' } };
+    }
+    throw e;
+  }
+}
+
+// PUBLIC_INTERFACE
+export async function getActiveSprints(boardId, signal) {
+  /**
+   * Backward-compatible function to fetch only active sprints.
+   * Uses getSprints and preserves shape.
+   */
+  const res = await getSprints(boardId, { state: 'active' }, signal);
+  return res;
 }
 
 // INTERNAL: Try to detect Story Points field id by reading fields metadata.
@@ -285,6 +344,27 @@ export async function getMyself(signal) {
     headers: { ...buildAuthHeader() },
     signal,
   });
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Build a JQL string for sprintless burndown by counting remaining issues by date range.
+ * Example base: project = KEY AND statusCategory != Done
+ */
+export function buildSprintlessJql(projectKey, extra = '') {
+  const base = `project = ${projectKey} AND statusCategory != Done`;
+  if (extra && String(extra).trim()) return `${base} AND (${extra})`;
+  return base;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Fetch issues for sprintless mode; the consumer should aggregate counts per day.
+ * To keep payloads reasonable, limit fields set.
+ */
+export async function searchIssuesForSprintless(projectKey, extraJql = '', signal) {
+  const jql = buildSprintlessJql(projectKey, extraJql);
+  return searchIssuesJQL(jql, ['summary', 'status', 'updated', 'resolutiondate'], signal);
 }
 
 export function extractIssueInfo(issue, storyPointsFieldId = 'customfield_10016') {
