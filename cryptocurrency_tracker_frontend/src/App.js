@@ -8,7 +8,6 @@ import LivePrices from './pages/LivePrices';
 import Portfolio from './pages/Portfolio';
 import Alerts from './pages/Alerts';
 import Analysis from './pages/Analysis';
-import JiraBurndown from './pages/JiraBurndown';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppStateProvider } from './context/AppStateContext';
 
@@ -30,7 +29,6 @@ function App() {
                   <Route path="/portfolio" element={<Portfolio />} />
                   <Route path="/alerts" element={<Alerts />} />
                   <Route path="/analysis" element={<Analysis />} />
-                  <Route path="/jira/burndown" element={<JiraBurndown />} />
                   <Route path="*" element={<Navigate to="/live" replace />} />
                 </Routes>
               </main>

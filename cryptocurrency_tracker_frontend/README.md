@@ -9,7 +9,6 @@ Pages in the Neon Fun dashboard:
 - Portfolio: Local holdings with validation, live valuation, and PnL calculation using latest prices.
 - Alerts: Client-side price alerts persisted locally; evaluation occurs while the Alerts page is open.
 - Analysis: Select a coin and timeframe to view a Recharts line chart with KPIs.
-- Jira Burndown: Optional integration to visualize sprint progress from Jira (Scrum), plus a sprintless fallback mode for Kanban.
 
 ## Features
 
@@ -22,7 +21,6 @@ Pages in the Neon Fun dashboard:
 - Portfolio: localStorage-based holdings with input validation and live valuation using the latest market snapshot.
 - Alerts: client-side alerts stored in localStorage; simple “above/below” thresholds are evaluated while the Alerts page is open.
 - Analysis: coin selector, timeframe selector, line chart via Recharts, and KPIs (min, max, change).
-- Jira Burndown: Scrum boards (with sprints) supported; Kanban boards (no sprints) show a banner with an option to use Sprintless mode (burndown by remaining issue count over a date range).
 
 ## Quick Start
 
@@ -38,56 +36,26 @@ Pages in the Neon Fun dashboard:
 - Search and sort: search by name or symbol (e.g., eth). Click the small sort icon in table headers “Price,” “24h,” and “Market Cap” to toggle the sort key and direction.
 - Pagination: change the page size via the selector and navigate with Prev/Next. The range label shows which rows you are viewing.
 - Portfolio: enter symbol, quantity, and buy price. Matching coin info is autofilled from cached markets when available. Data is stored in localStorage.
-- Alerts: create “above/below” alerts. Alerts are checked against live snapshots while the Alerts page is open.
+- Alerts: create “above/below” alerts. Alerts are checked against live snapshots while the page is open.
 - Clear cache: reload the page to naturally clear in-memory cache; session-based TTL cleanup runs periodically and on reload.
 
-## Environment Variables
+## Environment Variables (optional)
 
 CoinGecko is public and works out of the box with defaults. In corporate networks or when using a proxy/gateway, you can override the base URL and optionally pass an API key header.
 
-Supported variables (CoinGecko):
+Supported variables:
 - REACT_APP_COINGECKO_BASE_URL: defaults to https://api.coingecko.com/api/v3
 - REACT_APP_COINGECKO_API_KEY: if set, will be sent as header x-cg-pro-api-key
 
-Jira integration (optional; enables Jira Burndown page):
-- REACT_APP_JIRA_SITE_DOMAIN: your Jira Cloud domain (e.g., your-company.atlassian.net)
-- REACT_APP_JIRA_PROJECT_KEY: default project key (e.g., CRYPTO)
-- REACT_APP_JIRA_EMAIL: Jira account email used to generate API token
-- REACT_APP_JIRA_API_TOKEN: Jira API token from https://id.atlassian.com/manage-profile/security/api-tokens
-
 How to set:
-- Copy .env.example to .env in the project root (same folder as package.json).
-- Fill in the Jira variables. Never commit real secrets.
-- Restart the dev server after changing .env.
+- Create a .env file in the project root (same folder as package.json).
+- Add lines such as:
+  - REACT_APP_COINGECKO_BASE_URL=https://api.coingecko.com/api/v3
+  - REACT_APP_COINGECKO_API_KEY=your_key_if_required
+- Restart the dev server after changing .env. Never commit real secrets.
 
-Development proxy for Jira (avoids CORS):
-- We ship src/setupProxy.js (Create React App) to proxy /jira/* to https://{REACT_APP_JIRA_SITE_DOMAIN}/* and inject Basic Auth on the server-side.
-- The frontend calls /jira/rest/... during development, so browser CORS is avoided and secrets are not present in JS requests.
-- Ensure .env has all Jira vars set. Then run `npm start`. If you change .env, restart the dev server.
-
-Diagnostics & troubleshooting:
-- Open Integrations > Jira > Jira Burndown. Toggle "Show Diagnostics".
-- The panel shows which env vars are present (boolean), whether proxy mode is active, and a health check via /rest/api/3/myself.
-- Common issues:
-  - CORS or "Failed to fetch": Ensure proxy is enabled (development only) and .env is filled. Restart `npm start`.
-  - 401/403: Verify REACT_APP_JIRA_EMAIL and REACT_APP_JIRA_API_TOKEN are correct and belong to an account with API access.
-  - Board list empty: Confirm project key exists and has a Scrum board. We query /rest/agile/1.0/board?projectKeyOrId={key}.
-  - No active sprint: Start a sprint on the board or select a different sprint when available.
-  - 400 "The board does not support sprints": This typically occurs if you selected a Kanban board. The app now:
-    - Filters boards to Scrum by default (toggle "Show all boards" to include Kanban).
-    - Shows a banner and disables Sprint selection when a Kanban board is chosen.
-    - Offers a "Sprintless mode" that computes a burndown by remaining issue count over a chosen date range (labelled clearly as Sprintless by issue count).
-
-Security note:
-- This app is frontend-only; using Jira credentials from the browser is not secure for production.
-- We strongly recommend adding a backend proxy to store secrets server-side and forward Jira requests.
-- The UI shows a warning when running without a backend; a demo mode is available to preview the burndown page.
-
-Code references:
-- src/utils/api.js reads CoinGecko env vars.
-- src/client/jiraClient.js reads Jira env vars and prefers the /jira proxy during development; it also provides a mock fallback when env vars are missing.
-- src/utils/burndown.js computes daily remaining vs ideal lines for the sprint duration; the Jira page includes a sprintless count-based fallback.
-- src/pages/JiraBurndown.js renders the Jira burndown chart and issues table, includes a diagnostics panel, Scrum filter / Kanban banner, and Sprintless mode.
+Code reference:
+- src/utils/api.js reads REACT_APP_COINGECKO_BASE_URL and REACT_APP_COINGECKO_API_KEY and builds the request headers accordingly.
 
 ## Project Structure
 
@@ -102,7 +70,7 @@ Code references:
 - src/utils:
   - api.js: CoinGecko helpers for markets, coin history, trending, and coin details.
   - storage.js: localStorage helpers for portfolio and alerts.
-- src/pages: LivePrices, Portfolio, Alerts, Analysis, JiraBurndown.
+- src/pages: LivePrices, Portfolio, Alerts, Analysis.
 
 ## Theming
 
